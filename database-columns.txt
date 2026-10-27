@@ -1,0 +1,37 @@
+﻿array:12 [
+  0 => "id"
+  1 => "created_at"
+  2 => "updated_at"
+  3 => "member_number"
+  4 => "full_name"
+  5 => "email"
+  6 => "phone"
+  7 => "date_of_birth"
+  8 => "gender"
+  9 => "address"
+  10 => "emergency_contact"
+  11 => "status"
+] // vendor\psy\psysh\src\ExecutionClosure.php(41) : eval()'d code:1
+array:9 [
+  0 => "id"
+  1 => "created_at"
+  2 => "updated_at"
+  3 => "member_id"
+  4 => "attendance_date"
+  5 => "check_in_at"
+  6 => "check_out_at"
+  7 => "check_in_method"
+  8 => "notes"
+] // vendor\psy\psysh\src\ExecutionClosure.php(41) : eval()'d code:2
+array:10 [
+  0 => "id"
+  1 => "created_at"
+  2 => "updated_at"
+  3 => "member_id"
+  4 => "membership_plan_id"
+  5 => "start_date"
+  6 => "end_date"
+  7 => "price"
+  8 => "status"
+  9 => "notes"
+] // vendor\psy\psysh\src\ExecutionClosure.php(41) : eval()'d code:3

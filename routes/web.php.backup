@@ -1,0 +1,178 @@
+<?php
+
+use App\Http\Controllers\AttendanceController;
+use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\MemberController;
+use App\Http\Controllers\MembershipController;
+use App\Http\Controllers\MembershipPlanController;
+use App\Http\Controllers\ModulePageController;
+use App\Http\Controllers\PaymentController;
+use App\Http\Controllers\ProfileController;
+use App\Http\Controllers\ReportController;
+use App\Http\Controllers\StaffAccountController;
+use App\Models\User;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Route;
+Route::middleware('role:super_admin')->prefix('staff')->name('staff.')->group(function () {
+Route::get('/', [StaffAccountController::class, 'index'])->name('index');
+Route::post('/', [StaffAccountController::class, 'store'])->name('store');
+Route::patch('/{user}/role', [StaffAccountController::class, 'updateRole'])->name('role.update');
+Route::patch('/{user}/reset-password', [StaffAccountController::class, 'resetPassword'])->name('reset-password');
+Route::delete('/delete-all', [StaffAccountController::class, 'destroyAll'])
+    ->name('delete-all');
+Route::delete('/{user}', [StaffAccountController::class, 'destroy'])->name('destroy');
+Route::get('/', function () {
+    return redirect()->route('dashboard');
+});
+
+Route::middleware('auth')->group(function () {
+
+    // Dashboard
+    Route::get('/dashboard', [DashboardController::class, 'index'])
+        ->name('dashboard');
+
+    // Members
+    Route::get('/members', [MemberController::class, 'index'])
+        ->name('members.index');
+
+    Route::get('/members/create', [MemberController::class, 'create'])
+        ->name('members.create');
+
+    Route::post('/members', [MemberController::class, 'store'])
+        ->name('members.store');
+
+    Route::get('/members/{member}/edit', [MemberController::class, 'edit'])
+        ->name('members.edit');
+
+    Route::put('/members/{member}', [MemberController::class, 'update'])
+        ->name('members.update');
+
+    // Membership Plans
+    Route::get('/membership-plans', [MembershipPlanController::class, 'index'])
+        ->name('membership-plans.index');
+
+    Route::get('/membership-plans/create', [MembershipPlanController::class, 'create'])
+        ->name('membership-plans.create');
+
+    Route::post('/membership-plans', [MembershipPlanController::class, 'store'])
+        ->name('membership-plans.store');
+
+    Route::get('/membership-plans/{membershipPlan}/edit', [MembershipPlanController::class, 'edit'])
+        ->name('membership-plans.edit');
+
+    Route::put('/membership-plans/{membershipPlan}', [MembershipPlanController::class, 'update'])
+        ->name('membership-plans.update');
+
+    // Membership Registration and Renewal
+    Route::get('/memberships', [MembershipController::class, 'index'])
+        ->name('memberships.index');
+
+    Route::get('/memberships/create', [MembershipController::class, 'create'])
+        ->name('memberships.create');
+
+    Route::post('/memberships', [MembershipController::class, 'store'])
+        ->name('memberships.store');
+
+    Route::post('/memberships/{membership}/renew', [MembershipController::class, 'renew'])
+        ->name('memberships.renew');
+
+    // Attendance
+    Route::get('/attendance', [AttendanceController::class, 'index'])
+        ->name('attendance.index');
+
+    Route::post('/attendance/check-in', [AttendanceController::class, 'checkIn'])
+        ->name('attendance.check-in');
+
+    Route::post('/attendance/{attendance}/check-out', [AttendanceController::class, 'checkOut'])
+        ->name('attendance.check-out');
+
+    // Payments
+    Route::get('/payments', [PaymentController::class, 'index'])
+        ->name('payments.index');
+
+    Route::get('/payments/create', [PaymentController::class, 'create'])
+        ->name('payments.create');
+
+    Route::post('/payments', [PaymentController::class, 'store'])
+        ->name('payments.store');
+
+    // Reports
+    Route::get('/reports', [ReportController::class, 'index'])
+        ->name('reports.index');
+
+    Route::get('/reports/export', [ReportController::class, 'export'])
+        ->name('reports.export');
+
+    // Profile
+    Route::get('/profile', [ProfileController::class, 'edit'])
+        ->name('profile.edit');
+
+    Route::patch('/profile', [ProfileController::class, 'update'])
+        ->name('profile.update');
+
+    Route::delete('/profile', [ProfileController::class, 'destroy'])
+        ->name('profile.destroy');
+
+    /*
+    |--------------------------------------------------------------------------
+    | Super Admin: Staff Management
+    |--------------------------------------------------------------------------
+    */
+    Route::middleware('role:super_admin')
+        ->prefix('staff')
+        ->name('staff.')
+        ->group(function () {
+            Route::get('/', [StaffAccountController::class, 'index'])
+                ->name('index');
+
+            Route::post('/', [StaffAccountController::class, 'store'])
+                ->name('store');
+
+            Route::patch('/{user}/role', [StaffAccountController::class, 'updateRole'])
+                ->name('role.update');
+
+            Route::patch('/{user}/reset-password', [StaffAccountController::class, 'resetPassword'])
+                ->name('reset-password');
+
+            Route::delete('/{user}', [StaffAccountController::class, 'destroy'])
+                ->name('destroy');
+        });
+Route::delete('/delete-all', [StaffAccountController::class, 'destroyAll'])
+    ->name('delete-all');
+    /*
+    |--------------------------------------------------------------------------
+    | Admin and Super Admin: Reset Cashier/Receptionist Password
+    |--------------------------------------------------------------------------
+    | These routes never show the existing password. They set a new one.
+    */
+    Route::middleware('role:admin,super_admin')
+        ->prefix('cashier-passwords')
+        ->name('cashier-passwords.')
+        ->group(function () {
+            Route::get('/', function () {
+                $users = User::where('role', 'receptionist')
+                    ->orderBy('name')
+                    ->paginate(15);
+
+                return view('staff.reset-cashier-password', compact('users'));
+            })->name('index');
+
+            Route::patch('/{user}', function (Request $request, User $user) {
+                abort_unless($user->role === 'receptionist', 404);
+
+                $validated = $request->validate([
+                    'password' => ['required', 'string', 'min:12', 'confirmed'],
+                ]);
+
+                $user->update([
+                    'password' => Hash::make($validated['password']),
+                ]);
+
+                return redirect()->route('cashier-passwords.index')
+                    ->with('success', 'Cashier password reset successfully.');
+            })->name('update');
+        });
+});
+
+require __DIR__ . '/auth.php';

@@ -1,0 +1,1519 @@
+
+================ .\routes\web.php ================
+
+<?php
+
+use App\Http\Controllers\AttendanceController;
+use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\MemberController;
+use App\Http\Controllers\MembershipController;
+use App\Http\Controllers\MembershipPlanController;
+use App\Http\Controllers\ModulePageController;
+use App\Http\Controllers\PaymentController;
+use App\Http\Controllers\ProfileController;
+use App\Http\Controllers\ReportController;
+use App\Http\Controllers\StaffAccountController;
+use App\Models\User;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Route;
+
+Route::get('/', function () {
+    return redirect()->route('dashboard');
+});
+
+Route::middleware('auth')->group(function () {
+
+    // Dashboard
+    Route::get('/dashboard', [DashboardController::class, 'index'])
+        ->name('dashboard');
+
+    // Members
+    Route::get('/members', [MemberController::class, 'index'])
+        ->name('members.index');
+
+    Route::get('/members/create', [MemberController::class, 'create'])
+        ->name('members.create');
+
+    Route::post('/members', [MemberController::class, 'store'])
+        ->name('members.store');
+
+    Route::get('/members/{member}/edit', [MemberController::class, 'edit'])
+        ->name('members.edit');
+
+    Route::put('/members/{member}', [MemberController::class, 'update'])
+        ->name('members.update');
+
+    // Membership Plans
+    Route::get('/membership-plans', [MembershipPlanController::class, 'index'])
+        ->name('membership-plans.index');
+
+    Route::get('/membership-plans/create', [MembershipPlanController::class, 'create'])
+        ->name('membership-plans.create');
+
+    Route::post('/membership-plans', [MembershipPlanController::class, 'store'])
+        ->name('membership-plans.store');
+
+    Route::get('/membership-plans/{membershipPlan}/edit', [MembershipPlanController::class, 'edit'])
+        ->name('membership-plans.edit');
+
+    Route::put('/membership-plans/{membershipPlan}', [MembershipPlanController::class, 'update'])
+        ->name('membership-plans.update');
+
+    // Membership Registration and Renewal
+    Route::get('/memberships', [MembershipController::class, 'index'])
+        ->name('memberships.index');
+
+    Route::get('/memberships/create', [MembershipController::class, 'create'])
+        ->name('memberships.create');
+
+    Route::post('/memberships', [MembershipController::class, 'store'])
+        ->name('memberships.store');
+
+    Route::post('/memberships/{membership}/renew', [MembershipController::class, 'renew'])
+        ->name('memberships.renew');
+
+    // Attendance
+    Route::get('/attendance', [AttendanceController::class, 'index'])
+        ->name('attendance.index');
+
+    Route::post('/attendance/check-in', [AttendanceController::class, 'checkIn'])
+        ->name('attendance.check-in');
+
+    Route::post('/attendance/{attendance}/check-out', [AttendanceController::class, 'checkOut'])
+        ->name('attendance.check-out');
+
+    // Payments
+    Route::get('/payments', [PaymentController::class, 'index'])
+        ->name('payments.index');
+
+    Route::get('/payments/create', [PaymentController::class, 'create'])
+        ->name('payments.create');
+
+    Route::post('/payments', [PaymentController::class, 'store'])
+        ->name('payments.store');
+
+    // Reports
+    Route::get('/reports', [ReportController::class, 'index'])
+        ->name('reports.index');
+
+    Route::get('/reports/export', [ReportController::class, 'export'])
+        ->name('reports.export');
+
+    // Profile
+    Route::get('/profile', [ProfileController::class, 'edit'])
+        ->name('profile.edit');
+
+    Route::patch('/profile', [ProfileController::class, 'update'])
+        ->name('profile.update');
+
+    Route::delete('/profile', [ProfileController::class, 'destroy'])
+        ->name('profile.destroy');
+
+    /*
+    |--------------------------------------------------------------------------
+    | Super Admin: Staff Management
+    |--------------------------------------------------------------------------
+    */
+    Route::middleware('role:super_admin')
+        ->prefix('staff')
+        ->name('staff.')
+        ->group(function () {
+            Route::get('/', [StaffAccountController::class, 'index'])
+                ->name('index');
+
+            Route::post('/', [StaffAccountController::class, 'store'])
+                ->name('store');
+
+            Route::patch('/{user}/role', [StaffAccountController::class, 'updateRole'])
+                ->name('role.update');
+
+            Route::patch('/{user}/reset-password', [StaffAccountController::class, 'resetPassword'])
+                ->name('reset-password');
+
+            Route::delete('/{user}', [StaffAccountController::class, 'destroy'])
+                ->name('destroy');
+        });
+
+    /*
+    |--------------------------------------------------------------------------
+    | Admin and Super Admin: Reset Cashier/Receptionist Password
+    |--------------------------------------------------------------------------
+    | These routes never show the existing password. They set a new one.
+    */
+    Route::middleware('role:admin,super_admin')
+        ->prefix('cashier-passwords')
+        ->name('cashier-passwords.')
+        ->group(function () {
+            Route::get('/', function () {
+                $users = User::where('role', 'receptionist')
+                    ->orderBy('name')
+                    ->paginate(15);
+
+                return view('staff.reset-cashier-password', compact('users'));
+            })->name('index');
+
+            Route::patch('/{user}', function (Request $request, User $user) {
+                abort_unless($user->role === 'receptionist', 404);
+
+                $validated = $request->validate([
+                    'password' => ['required', 'string', 'min:12', 'confirmed'],
+                ]);
+
+                $user->update([
+                    'password' => Hash::make($validated['password']),
+                ]);
+
+                return redirect()->route('cashier-passwords.index')
+                    ->with('success', 'Cashier password reset successfully.');
+            })->name('update');
+        });
+});
+
+require __DIR__ . '/auth.php';
+
+================ .\resources\views\staff\index.blade.php ================
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#071426">
+    <title>Staff Management | Gym Tracker</title>
+
+    <style>
+        * { box-sizing: border-box; }
+
+        body {
+            margin: 0;
+            background: #071426;
+            color: #eaf1fb;
+            font-family: Arial, sans-serif;
+        }
+
+        main {
+            max-width: 1100px;
+            margin: auto;
+            padding: 28px 18px;
+        }
+
+        h1 { margin: 0 0 8px; }
+        h2 { font-size: 18px; margin-top: 0; }
+
+        .muted {
+            color: #93a8c3;
+            font-size: 13px;
+        }
+
+        .panel {
+            background: #0d2038;
+            border: 1px solid #213b59;
+            border-radius: 13px;
+            padding: 20px;
+            margin: 22px 0;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 14px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 7px;
+            color: #c5d4e7;
+            font-size: 13px;
+        }
+
+        input, select {
+            width: 100%;
+            padding: 11px;
+            border: 1px solid #304967;
+            border-radius: 8px;
+            background: #08182b;
+            color: white;
+        }
+
+        button, .btn {
+            display: inline-block;
+            padding: 10px 14px;
+            border: 0;
+            border-radius: 8px;
+            background: #2876d2;
+            color: white;
+            cursor: pointer;
+            text-decoration: none;
+            font-size: 13px;
+            font-weight: bold;
+        }
+
+        button:hover, .btn:hover {
+            background: #3688e8;
+        }
+
+        .message {
+            padding: 12px;
+            border-radius: 8px;
+            margin-top: 16px;
+        }
+
+        .success {
+            background: #123b32;
+            color: #aaf2d6;
+        }
+
+        .error {
+            background: #451f2a;
+            color: #ffc3cb;
+        }
+
+        .table-wrap {
+            overflow-x: auto;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            min-width: 700px;
+        }
+
+        th, td {
+            padding: 13px 10px;
+            text-align: left;
+            border-bottom: 1px solid #213750;
+            font-size: 13px;
+        }
+
+        th { color: #9fb5d0; }
+
+        .role-form {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+
+        .role-form select {
+            min-width: 145px;
+        }
+
+        .badge {
+            display: inline-block;
+            background: #253a55;
+            padding: 5px 9px;
+            border-radius: 20px;
+            font-size: 11px;
+            text-transform: capitalize;
+        }
+
+        .role-cashier {
+            background: #174b58;
+            color: #a5f3fc;
+        }
+
+        .role-admin {
+            background: #263e72;
+            color: #bfdbfe;
+        }
+
+        .role-receptionist {
+            background: #493b21;
+            color: #fde68a;
+        }
+
+        .pagination {
+            margin-top: 18px;
+        }
+
+        @media (max-width: 600px) {
+            .grid {
+                grid-template-columns: 1fr;
+            }
+
+            .role-form {
+                align-items: stretch;
+                flex-direction: column;
+            }
+
+            .role-form select {
+                min-width: 0;
+            }
+        }
+    </style>
+</head>
+<body>
+<main>
+    <a class="btn" href="{{ route('dashboard') }}">&#8592; Dashboard</a>
+
+    <h1 style="margin-top:22px">Staff Management</h1>
+    <p class="muted">
+        Create staff accounts and assign permitted roles.
+        Only Super Admin can access this page.
+    </p>
+
+    @if(session('success'))
+        <div class="message success">
+            {{ session('success') }}
+        </div>
+    @endif
+
+    @if(session('error'))
+        <div class="message error">
+            {{ session('error') }}
+        </div>
+    @endif
+
+    @if($errors->any())
+        <div class="message error">
+            <strong>Please correct these errors:</strong>
+            <ul>
+                @foreach($errors->all() as $error)
+                    <li>{{ $error }}</li>
+                @endforeach
+            </ul>
+        </div>
+    @endif
+
+    <section class="panel">
+        <h2>Create Staff Account</h2>
+
+        <form method="POST" action="{{ route('staff.store') }}">
+            @csrf
+
+            <div class="grid">
+                <div>
+                    <label for="name">Full name *</label>
+                    <input
+                        id="name"
+                        type="text"
+                        name="name"
+                        value="{{ old('name') }}"
+                        required
+                        maxlength="255"
+                        autocomplete="name"
+                    >
+                </div>
+
+                <div>
+                    <label for="email">Email address *</label>
+                    <input
+                        id="email"
+                        type="email"
+                        name="email"
+                        value="{{ old('email') }}"
+                        required
+                        maxlength="255"
+                        autocomplete="email"
+                    >
+                </div>
+
+                <div>
+                    <label for="role">Role *</label>
+                    <select id="role" name="role" required>
+                        <option value="admin" @selected(old('role') === 'admin')>
+                            Admin
+                        </option>
+                        <option value="receptionist" @selected(old('role', 'receptionist') === 'receptionist')>
+                            Receptionist
+                        </option>
+                        <option value="cashier" @selected(old('role') === 'cashier')>
+                            Cashier
+                        </option>
+                    </select>
+                </div>
+
+                <div>
+                    <label for="password">Password (minimum 12 characters) *</label>
+                    <input
+                        id="password"
+                        type="password"
+                        name="password"
+                        required
+                        minlength="12"
+                        autocomplete="new-password"
+                    >
+                </div>
+
+                <div>
+                    <label for="password_confirmation">Confirm password *</label>
+                    <input
+                        id="password_confirmation"
+                        type="password"
+                        name="password_confirmation"
+                        required
+                        minlength="12"
+                        autocomplete="new-password"
+                    >
+                </div>
+
+                <div style="align-self:end">
+                    <button type="submit">Create Staff Account</button>
+                </div>
+            </div>
+        </form>
+    </section>
+
+    <section class="panel">
+        <h2>Existing Accounts</h2>
+
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Email</th>
+                        <th>Current Role</th>
+                        <th>Change Role</th>
+                    </tr>
+                </thead>
+
+                <tbody>
+                    @forelse($users as $user)
+                        <tr>
+                            <td>{{ $user->name }}</td>
+                            <td>{{ $user->email }}</td>
+
+                            <td>
+                                <span class="badge
+                                    @if($user->role === 'cashier') role-cashier
+                                    @elseif($user->role === 'admin') role-admin
+                                    @elseif($user->role === 'receptionist') role-receptionist
+                                    @endif
+                                ">
+                                    {{ str_replace('_', ' ', $user->role ?? 'receptionist') }}
+                                </span>
+                            </td>
+
+                            <td>
+                                @if($user->role === 'super_admin')
+                                    <span class="muted">Protected account</span>
+                                @elseif(auth()->id() === $user->id)
+                                    <span class="muted">Your account</span>
+                                @else
+                                    <form
+                                        class="role-form"
+                                        method="POST"
+                                        action="{{ route('staff.role.update', $user) }}"
+                                    >
+                                        @csrf
+                                        @method('PATCH')
+
+                                        <select
+                                            name="role"
+                                            aria-label="Role for {{ $user->name }}"
+                                            required
+                                        >
+                                            <option
+                                                value="admin"
+                                                @selected($user->role === 'admin')
+                                            >
+                                                Admin
+                                            </option>
+
+                                            <option
+                                                value="receptionist"
+                                                @selected($user->role === 'receptionist')
+                                            >
+                                                Receptionist
+                                            </option>
+
+                                            <option
+                                                value="cashier"
+                                                @selected($user->role === 'cashier')
+                                            >
+                                                Cashier
+                                            </option>
+                                        </select>
+
+                                        <button type="submit">Save</button>
+                                    </form>
+                                @endif
+                            </td>
+                        </tr>
+                    @empty
+                        <tr>
+                            <td colspan="4">No accounts found.</td>
+                        </tr>
+                    @endforelse
+                </tbody>
+            </table>
+        </div>
+
+        <div class="pagination">
+            {{ $users->links() }}
+        </div>
+    </section>
+</main>
+</body>
+</html>
+
+================ .\resources\views\staff\reset-cashier-password.blade.php ================
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Reset Cashier Password</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: #071426;
+            color: #f1f5f9;
+            margin: 0;
+            padding: 30px;
+        }
+        .panel {
+            max-width: 1000px;
+            margin: auto;
+            background: #10233e;
+            padding: 24px;
+            border-radius: 12px;
+        }
+        .user {
+            padding: 18px 0;
+            border-bottom: 1px solid #334155;
+        }
+        input, button {
+            padding: 10px;
+            margin: 5px 4px 5px 0;
+            border-radius: 6px;
+        }
+        button {
+            background: #2563eb;
+            color: white;
+            border: 0;
+            cursor: pointer;
+        }
+        a { color: #93c5fd; }
+        .success { color: #86efac; }
+        .error { color: #fca5a5; }
+    </style>
+</head>
+<body>
+<div class="panel">
+    <h1>Cashier Password Reset</h1>
+    <p>Set a new password when a cashier forgets theirs.
+       Existing passwords are never displayed.</p>
+
+    <p><a href="{{ route('dashboard') }}">Back to Dashboard</a></p>
+
+    @if (session('success'))
+        <p class="success">{{ session('success') }}</p>
+    @endif
+
+    @if (session('error'))
+        <p class="error">{{ session('error') }}</p>
+    @endif
+
+    @if ($errors->any())
+        <div class="error">
+            @foreach ($errors->all() as $error)
+                <p>{{ $error }}</p>
+            @endforeach
+        </div>
+    @endif
+
+    @forelse ($users as $user)
+        <div class="user">
+            <h3>{{ $user->name }}</h3>
+            <p>{{ $user->email }}</p>
+
+            <form method="POST"
+                  action="{{ route('cashier-passwords.update', $user) }}">
+                @csrf
+                @method('PATCH')
+
+                <input type="password" name="password"
+                       placeholder="New password (12+ characters)"
+                       minlength="12" autocomplete="new-password" required>
+
+                <input type="password" name="password_confirmation"
+                       placeholder="Confirm new password"
+                       minlength="12" autocomplete="new-password" required>
+
+                <button type="submit">Reset Password</button>
+            </form>
+        </div>
+    @empty
+        <p>No receptionist/cashier accounts were found.</p>
+    @endforelse
+
+    {{ $users->links() }}
+</div>
+</body>
+</html>
+
+================ .\resources\views\payments\index.blade.php ================
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Payments | Gym Membership Tracker</title>
+    <style>
+        * { box-sizing: border-box; }
+        body { margin: 0; background: #081426; color: #edf4ff; font-family: Arial, sans-serif; }
+        header { padding: 22px 5%; background: #0b1b30; border-bottom: 1px solid #20324b; display: flex; justify-content: space-between; align-items: center; gap: 15px; flex-wrap: wrap; }
+        h1 { margin: 0; font-size: 24px; }
+        main { max-width: 1300px; margin: 28px auto; padding: 0 20px; }
+        .muted { color: #91a6c2; font-size: 12px; }
+        .button { display: inline-block; padding: 11px 15px; background: #2563eb; color: white; text-decoration: none; border: 0; border-radius: 8px; font-weight: bold; }
+        .secondary { background: #263b56; }
+        .cards { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 14px; }
+        .card, .panel { background: #0d1e33; border: 1px solid #20344e; border-radius: 12px; }
+        .card { padding: 20px; }
+        .card-title { color: #9db0c9; font-size: 12px; }
+        .amount { font-size: 25px; font-weight: bold; margin-top: 12px; overflow-wrap: anywhere; }
+        .panel { margin-top: 22px; overflow-x: auto; }
+        table { width: 100%; min-width: 900px; border-collapse: collapse; text-align: left; }
+        th, td { padding: 14px 16px; border-bottom: 1px solid #20344e; font-size: 12px; }
+        th { color: #91a6c2; font-size: 10px; text-transform: uppercase; }
+        .message { padding: 13px 16px; border-radius: 8px; margin-bottom: 15px; background: #123d32; color: #b9f6d9; }
+        .status { display: inline-block; padding: 5px 9px; border-radius: 20px; font-size: 10px; text-transform: capitalize; }
+        .paid { background: #164e3e; color: #a7f3d0; }
+        .pending { background: #3f351a; color: #fde68a; }
+        .failed { background: #4b2933; color: #fecdd3; }
+        .empty { text-align: center; padding: 35px; color: #91a6c2; }
+        @media(max-width:700px) { .cards { grid-template-columns: 1fr; } }
+    </style>
+</head>
+<body>
+<header>
+    <div>
+        <h1>Payments</h1>
+        <div class="muted" style="margin-top:6px">Payment records and collections in Philippine pesos</div>
+    </div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <a class="button secondary" href="{{ route('dashboard') }}">Dashboard</a>
+        <a class="button" href="{{ route('payments.create') }}">+ Record Payment</a>
+    </div>
+</header>
+
+<main>
+    @if(session('success'))
+        <div class="message">{{ session('success') }}</div>
+    @endif
+
+    <section class="cards">
+        <article class="card">
+            <div class="card-title">Total Payments Received</div>
+            <div class="amount">₱{{ number_format((float) $totalCollected, 2) }}</div>
+            <div class="muted">All records marked paid</div>
+        </article>
+        <article class="card">
+            <div class="card-title">Collected Today</div>
+            <div class="amount">₱{{ number_format((float) $todayCollected, 2) }}</div>
+            <div class="muted">Paid records dated today</div>
+        </article>
+        <article class="card">
+            <div class="card-title">Pending Payments</div>
+            <div class="amount">₱{{ number_format((float) $pendingAmount, 2) }}</div>
+            <div class="muted">Records awaiting confirmation</div>
+        </article>
+    </section>
+
+    <section class="panel">
+        <table>
+            <thead>
+                <tr>
+                    <th>Date</th>
+                    <th>Member</th>
+                    <th>Plan</th>
+                    <th>Method</th>
+                    <th>Reference</th>
+                    <th>Amount</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                @forelse($payments as $payment)
+                    <tr>
+                        <td>{{ $payment->payment_date->format('M j, Y') }}</td>
+                        <td>{{ $payment->membership?->member?->full_name ?? 'Member unavailable' }}</td>
+                        <td>{{ $payment->membership?->plan?->name ?? 'Plan unavailable' }}</td>
+                        <td>{{ ucwords(str_replace('_', ' ', $payment->payment_method)) }}</td>
+                        <td>{{ $payment->reference_number ?: '—' }}</td>
+                        <td><strong>₱{{ number_format((float) $payment->amount, 2) }}</strong></td>
+                        <td><span class="status {{ $payment->status }}">{{ ucfirst($payment->status) }}</span></td>
+                    </tr>
+                @empty
+                    <tr><td colspan="7" class="empty">No payment records yet. Select “Record Payment” to get started.</td></tr>
+                @endforelse
+            </tbody>
+        </table>
+        <div style="padding:18px">{{ $payments->links() }}</div>
+    </section>
+</main>
+</body>
+</html>
+
+================ .\resources\views\payments\create.blade.php ================
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Record Payment</title>
+    <style>
+        * { box-sizing: border-box; }
+        body { margin: 0; padding: 25px 15px; background: #081426; color: #edf4ff; font-family: Arial, sans-serif; }
+        .panel { max-width: 760px; margin: 20px auto; padding: 26px; background: #0d1e33; border: 1px solid #20344e; border-radius: 13px; }
+        h1 { margin-top: 0; }
+        .muted { color: #91a6c2; font-size: 13px; line-height: 1.6; }
+        label { display: block; margin: 18px 0 7px; font-weight: bold; font-size: 13px; }
+        input, select, textarea { width: 100%; padding: 12px; background: #081426; color: #edf4ff; border: 1px solid #38516e; border-radius: 7px; font: inherit; }
+        textarea { min-height: 85px; resize: vertical; }
+        .button { display: inline-block; padding: 12px 16px; background: #2563eb; color: white; border: 0; border-radius: 7px; cursor: pointer; text-decoration: none; font-weight: bold; }
+        .secondary { background: #263b56; }
+        .error { color: #fecdd3; font-size: 13px; margin-top: 5px; }
+        .notice { padding: 13px; margin-top: 15px; background: #172d49; border-radius: 8px; color: #bfd7f7; font-size: 13px; }
+        .actions { display: flex; gap: 10px; margin-top: 22px; flex-wrap: wrap; }
+    </style>
+</head>
+<body>
+<div class="panel">
+    <h1>Record Payment</h1>
+    <p class="muted">Record money received or a payment awaiting confirmation. This form does not process or verify external transactions.</p>
+
+    @if($errors->any())
+        <div class="error">
+            <ul>
+                @foreach($errors->all() as $error)
+                    <li>{{ $error }}</li>
+                @endforeach
+            </ul>
+        </div>
+    @endif
+
+    @if($memberships->isEmpty())
+        <div class="notice">
+            There are no memberships to charge yet.
+            <a href="{{ route('memberships.create') }}" style="color:#93c5fd">Register a membership first.</a>
+        </div>
+    @else
+        <form method="POST" action="{{ route('payments.store') }}">
+            @csrf
+
+            <label for="membership_id">Membership *</label>
+            <select id="membership_id" name="membership_id" required>
+                <option value="">Select a membership</option>
+                @foreach($memberships as $membership)
+                    <option
+                        value="{{ $membership->id }}"
+                        data-price="{{ $membership->price }}"
+                        @selected((string) old('membership_id') === (string) $membership->id)
+                    >
+                        {{ $membership->member?->full_name ?? 'Member unavailable' }}
+                        — {{ $membership->plan?->name ?? 'Plan unavailable' }}
+                        — ₱{{ number_format((float) $membership->price, 2) }}
+                        (ends {{ $membership->end_date->format('M j, Y') }})
+                    </option>
+                @endforeach
+            </select>
+            @error('membership_id') <div class="error">{{ $message }}</div> @enderror
+
+            <label for="amount">Amount (PHP) *</label>
+            <input id="amount" type="number" name="amount" min="0.01" max="99999999.99"
+                   step="0.01" value="{{ old('amount') }}" required>
+            @error('amount') <div class="error">{{ $message }}</div> @enderror
+
+            <label for="payment_date">Payment Date *</label>
+            <input id="payment_date" type="date" name="payment_date"
+                   max="{{ now()->toDateString() }}"
+                   value="{{ old('payment_date', now()->toDateString()) }}" required>
+            @error('payment_date') <div class="error">{{ $message }}</div> @enderror
+
+            <label for="payment_method">Payment Method *</label>
+            <select id="payment_method" name="payment_method" required>
+                <option value="cash" @selected(old('payment_method', 'cash') === 'cash')>Cash</option>
+                <option value="gcash" @selected(old('payment_method') === 'gcash')>GCash</option>
+                <option value="bank_transfer" @selected(old('payment_method') === 'bank_transfer')>Bank Transfer</option>
+                <option value="card" @selected(old('payment_method') === 'card')>Card</option>
+                <option value="other" @selected(old('payment_method') === 'other')>Other</option>
+            </select>
+
+            <label for="reference_number">Reference Number (optional)</label>
+            <input id="reference_number" name="reference_number" maxlength="100"
+                   value="{{ old('reference_number') }}" placeholder="Official receipt or transaction reference">
+            @error('reference_number') <div class="error">{{ $message }}</div> @enderror
+
+            <label for="status">Payment Status *</label>
+            <select id="status" name="status" required>
+                <option value="paid" @selected(old('status', 'paid') === 'paid')>Paid — money received</option>
+                <option value="pending" @selected(old('status') === 'pending')>Pending — awaiting confirmation</option>
+                <option value="failed" @selected(old('status') === 'failed')>Failed — not received</option>
+            </select>
+
+            <label for="notes">Notes (optional)</label>
+            <textarea id="notes" name="notes" maxlength="2000">{{ old('notes') }}</textarea>
+            @error('notes') <div class="error">{{ $message }}</div> @enderror
+
+            <div class="actions">
+                <button class="button" type="submit">Save Payment Record</button>
+                <a class="button secondary" href="{{ route('payments.index') }}">Cancel</a>
+            </div>
+        </form>
+
+        <script>
+            const membershipSelect = document.getElementById('membership_id');
+            const amountInput = document.getElementById('amount');
+
+            membershipSelect.addEventListener('change', function () {
+                const option = this.options[this.selectedIndex];
+                if (option && option.dataset.price) {
+                    amountInput.value = Number(option.dataset.price).toFixed(2);
+                }
+            });
+
+            if (!amountInput.value && membershipSelect.value) {
+                membershipSelect.dispatchEvent(new Event('change'));
+            }
+        </script>
+    @endif
+</div>
+</body>
+</html>
+
+================ .\resources\views\reports\index.blade.php ================
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Reports | Gym Membership Tracker</title>
+    <style>
+        * { box-sizing: border-box; }
+        body { margin: 0; background: #071426; color: #eaf1fb; font-family: Arial, sans-serif; }
+        .layout { display: flex; min-height: 100vh; }
+        .sidebar { width: 235px; flex-shrink: 0; background: #0b1c32; border-right: 1px solid #203650; padding: 26px 16px; }
+        .brand { font-size: 18px; font-weight: 800; margin: 0 8px 30px; }
+        .brand small { display: block; margin-top: 7px; color: #8da5c4; font-size: 11px; }
+        .nav-link { display: block; padding: 12px; margin: 5px 0; color: #b7c8df; text-decoration: none; border-radius: 8px; font-size: 14px; }
+        .nav-link:hover, .nav-link.active { background: #173657; color: white; }
+        .main { flex: 1; min-width: 0; padding: 30px; }
+        h1 { margin: 0 0 8px; font-size: 27px; }
+        h2 { margin: 0 0 18px; font-size: 17px; }
+        .muted { color: #93a8c3; font-size: 13px; }
+        .panel, .stat { background: #0d2038; border: 1px solid #213b59; border-radius: 13px; padding: 20px; margin-bottom: 22px; }
+        .stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 15px; margin: 24px 0; }
+        .stat { margin: 0; }
+        .stat-label { color: #9bb0ca; font-size: 13px; }
+        .stat-value { font-size: 25px; font-weight: 800; margin-top: 11px; overflow-wrap: anywhere; }
+        .filters { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 13px; align-items: end; }
+        label { display: block; color: #c5d4e7; font-size: 13px; margin-bottom: 7px; }
+        input, select { width: 100%; padding: 11px 12px; border-radius: 8px; background: #08182b; border: 1px solid #304967; color: #edf5ff; font: inherit; font-size: 14px; }
+        button, .btn { display: inline-block; border: 0; border-radius: 8px; padding: 11px 15px; background: #2876d2; color: white; cursor: pointer; text-decoration: none; font-weight: 700; font-size: 13px; text-align: center; }
+        button:hover, .btn:hover { background: #3688e8; }
+        .green { background: #147653; }
+        .green:hover { background: #198b62; }
+        .message { padding: 12px 14px; border-radius: 8px; margin-bottom: 16px; background: #451f2a; border: 1px solid #8a3445; color: #ffc3cb; }
+        .table-wrap { overflow-x: auto; }
+        table { width: 100%; border-collapse: collapse; min-width: 720px; }
+        th, td { text-align: left; padding: 13px 11px; border-bottom: 1px solid #213750; font-size: 13px; vertical-align: top; }
+        th { color: #9fb5d0; font-weight: 600; white-space: nowrap; }
+        .badge { display: inline-block; border-radius: 20px; padding: 5px 9px; font-size: 11px; font-weight: 700; background: #253a55; color: #d3e3f7; }
+        .pagination { margin-top: 16px; }
+        .pagination a, .pagination span { color: #dceaff; margin-right: 8px; }
+        .empty { padding: 24px; text-align: center; color: #93a8c3; }
+        .section-head { display: flex; justify-content: space-between; align-items: center; gap: 15px; flex-wrap: wrap; margin-bottom: 18px; }
+        @media(max-width: 1050px) { .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } .filters { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+        @media(max-width: 800px) { .layout { display: block; } .sidebar { width: 100%; padding: 14px; } .sidebar nav { display: flex; flex-wrap: wrap; } .brand { margin-bottom: 12px; } .main { padding: 18px; } }
+        @media(max-width: 480px) { .stats, .filters { grid-template-columns: 1fr; } }
+    </style>
+</head>
+<body>
+<div class="layout">
+    <aside class="sidebar">
+        <div class="brand">GYM TRACKER<small>MEMBERSHIP MANAGEMENT</small></div>
+        <nav>
+            <a class="nav-link" href="{{ route('dashboard') }}">▦ Dashboard</a>
+            <a class="nav-link" href="{{ route('members.index') }}">♙ Members</a>
+            <a class="nav-link" href="{{ route('memberships.index') }}">▣ Memberships</a>
+            <a class="nav-link" href="{{ route('membership-plans.index') }}">▤ Membership Plans</a>
+            <a class="nav-link" href="{{ route('attendance.index') }}">◷ Attendance / QR</a>
+            <a class="nav-link" href="{{ route('payments.index') }}">₱ Payments</a>
+            <a class="nav-link active" href="{{ route('reports.index') }}">▥ Reports</a>
+        </nav>
+    </aside>
+
+    <main class="main">
+        <h1>Reports & Analytics</h1>
+        <div class="muted">Review gym activity, membership records, and recorded collections.</div>
+
+        @if($errors->any())
+            <div class="message" style="margin-top:18px">
+                @foreach($errors->all() as $error)
+                    <div>{{ $error }}</div>
+                @endforeach
+            </div>
+        @endif
+
+        <section class="stats">
+            <div class="stat">
+                <div class="stat-label">Total Members</div>
+                <div class="stat-value">{{ number_format($totalMembers) }}</div>
+            </div>
+            <div class="stat">
+                <div class="stat-label">Currently Active Memberships</div>
+                <div class="stat-value">{{ number_format($activeMemberships) }}</div>
+            </div>
+            <div class="stat">
+                <div class="stat-label">Visits in Selected Period</div>
+                <div class="stat-value">{{ number_format($attendanceCount) }}</div>
+            </div>
+            <div class="stat">
+                <div class="stat-label">Paid Collections in Period</div>
+                <div class="stat-value">₱{{ number_format((float) $revenue, 2) }}</div>
+            </div>
+        </section>
+
+        <section class="panel">
+            <h2>Report Filters</h2>
+            <form method="GET" action="{{ route('reports.index') }}" class="filters">
+                <div>
+                    <label for="type">Report type</label>
+                    <select id="type" name="type">
+                        <option value="attendance" @selected($type === 'attendance')>Attendance</option>
+                        <option value="memberships" @selected($type === 'memberships')>Memberships</option>
+                        <option value="payments" @selected($type === 'payments')>Payments</option>
+                    </select>
+                </div>
+                <div>
+                    <label for="from">From date</label>
+                    <input type="date" id="from" name="from" value="{{ $from }}" required>
+                </div>
+                <div>
+                    <label for="to">To date</label>
+                    <input type="date" id="to" name="to" value="{{ $to }}" required>
+                </div>
+                <button type="submit">Generate Report</button>
+            </form>
+        </section>
+
+        <section class="panel">
+            <div class="section-head">
+                <div>
+                    <h2 style="margin-bottom:7px">
+                        @if($type === 'memberships')
+                            Membership Report
+                        @elseif($type === 'payments')
+                            Payment Report
+                        @else
+                            Attendance Report
+                        @endif
+                    </h2>
+                    <div class="muted">{{ $from }} through {{ $to }}</div>
+                </div>
+                <a class="btn green" href="{{ route('reports.export', ['type' => $type, 'from' => $from, 'to' => $to]) }}">↓ Export CSV</a>
+            </div>
+
+            <div class="table-wrap">
+                <table>
+                    @if($type === 'memberships')
+                        <thead>
+                        <tr><th>Member</th><th>Plan</th><th>Start Date</th><th>End Date</th><th>Price</th><th>Status</th></tr>
+                        </thead>
+                        <tbody>
+                        @forelse($records as $record)
+                            @php
+                                $status = $record->status === 'cancelled'
+                                    ? 'Cancelled'
+                                    : ($record->start_date->isFuture()
+                                        ? 'Upcoming'
+                                        : ($record->end_date->lt(today()) ? 'Expired' : 'Active'));
+                            @endphp
+                            <tr>
+                                <td>{{ $record->member?->full_name ?? '—' }}<br><span class="muted">{{ $record->member?->member_number }}</span></td>
+                                <td>{{ $record->plan?->name ?? '—' }}</td>
+                                <td>{{ $record->start_date->format('M d, Y') }}</td>
+                                <td>{{ $record->end_date->format('M d, Y') }}</td>
+                                <td>₱{{ number_format((float) $record->price, 2) }}</td>
+                                <td><span class="badge">{{ $status }}</span></td>
+                            </tr>
+                        @empty
+                            <tr><td colspan="6" class="empty">No membership records for this period.</td></tr>
+                        @endforelse
+                        </tbody>
+                    @elseif($type === 'payments')
+                        <thead>
+                        <tr><th>Date</th><th>Member</th><th>Plan</th><th>Method</th><th>Amount</th><th>Status</th></tr>
+                        </thead>
+                        <tbody>
+                        @forelse($records as $record)
+                            <tr>
+                                <td>{{ $record->payment_date?->format('M d, Y') ?? '—' }}</td>
+                                <td>{{ $record->membership?->member?->full_name ?? '—' }}</td>
+                                <td>{{ $record->membership?->plan?->name ?? '—' }}</td>
+                                <td>{{ str_replace('_', ' ', ucfirst($record->payment_method)) }}</td>
+                                <td>₱{{ number_format((float) $record->amount, 2) }}</td>
+                                <td><span class="badge">{{ ucfirst($record->status) }}</span></td>
+                            </tr>
+                        @empty
+                            <tr><td colspan="6" class="empty">No payment records for this period.</td></tr>
+                        @endforelse
+                        </tbody>
+                    @else
+                        <thead>
+                        <tr><th>Date</th><th>Member</th><th>Member No.</th><th>Check-in</th><th>Check-out</th><th>Method</th></tr>
+                        </thead>
+                        <tbody>
+                        @forelse($records as $record)
+                            <tr>
+                                <td>{{ $record->attendance_date?->format('M d, Y') ?? '—' }}</td>
+                                <td>{{ $record->member?->full_name ?? '—' }}</td>
+                                <td>{{ $record->member?->member_number ?? '—' }}</td>
+                                <td>{{ $record->check_in_at?->format('h:i A') ?? '—' }}</td>
+                                <td>{{ $record->check_out_at?->format('h:i A') ?? '—' }}</td>
+                                <td>{{ strtoupper($record->check_in_method) }}</td>
+                            </tr>
+                        @empty
+                            <tr><td colspan="6" class="empty">No attendance records for this period.</td></tr>
+                        @endforelse
+                        </tbody>
+                    @endif
+                </table>
+            </div>
+
+            <div class="pagination">{{ $records->links() }}</div>
+        </section>
+    </main>
+</div>
+</body>
+</html>
+
+================ .\app\Http\Controllers\PaymentController.php ================
+
+<?php
+
+namespace App\Http\Controllers;
+
+use App\Models\Membership;
+use App\Models\Payment;
+use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
+
+class PaymentController extends Controller
+{
+    public function index()
+    {
+        $user = request()->user();
+
+        $paymentsQuery = Payment::with([
+            'membership.member',
+            'membership.plan',
+            'processedBy',
+        ]);
+
+        // Cashiers can see only transactions they recorded.
+        if ($user->role === 'cashier') {
+            $paymentsQuery->where('processed_by', $user->id);
+        }
+
+        $payments = $paymentsQuery
+            ->orderByDesc('payment_date')
+            ->orderByDesc('id')
+            ->paginate(15);
+
+        $totalsQuery = Payment::query();
+
+        if ($user->role === 'cashier') {
+            $totalsQuery->where('processed_by', $user->id);
+        }
+
+        $totalCollected = (clone $totalsQuery)
+            ->where('status', 'paid')
+            ->sum('amount');
+
+        $todayCollected = (clone $totalsQuery)
+            ->where('status', 'paid')
+            ->whereDate('payment_date', today())
+            ->sum('amount');
+
+        $pendingAmount = (clone $totalsQuery)
+            ->where('status', 'pending')
+            ->sum('amount');
+
+        return view('payments.index', compact(
+            'payments',
+            'totalCollected',
+            'todayCollected',
+            'pendingAmount'
+        ));
+    }
+
+    public function create()
+    {
+        $memberships = Membership::with(['member', 'plan'])
+            ->orderByDesc('id')
+            ->get();
+
+        return view('payments.create', compact('memberships'));
+    }
+
+    public function store(Request $request)
+    {
+        $validated = $request->validate([
+            'membership_id' => [
+                'required',
+                Rule::exists('memberships', 'id'),
+            ],
+            'amount' => [
+                'required',
+                'numeric',
+                'gt:0',
+                'max:99999999.99',
+            ],
+            'payment_date' => [
+                'required',
+                'date',
+                'before_or_equal:today',
+            ],
+            'payment_method' => [
+                'required',
+                Rule::in([
+                    'cash',
+                    'gcash',
+                    'bank_transfer',
+                    'card',
+                    'other',
+                ]),
+            ],
+            'reference_number' => [
+                'nullable',
+                'string',
+                'max:100',
+            ],
+            'status' => [
+                'required',
+                Rule::in(['paid', 'pending', 'failed']),
+            ],
+            'notes' => [
+                'nullable',
+                'string',
+                'max:2000',
+            ],
+        ]);
+
+        // Never accept processed_by from the browser form.
+        // Attribute the transaction to the authenticated user.
+        $validated['processed_by'] = $request->user()->id;
+
+        Payment::create($validated);
+
+        return redirect()
+            ->route('payments.index')
+            ->with('success', 'Payment record saved successfully.');
+    }
+}
+
+================ .\app\Http\Controllers\StaffAccountController.php ================
+
+<?php
+
+namespace App\Http\Controllers;
+
+use App\Models\User;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Validation\Rule;
+
+class StaffAccountController extends Controller
+{
+    public function index()
+    {
+        $users = User::orderBy('name')->paginate(15);
+
+        return view('staff.index', compact('users'));
+    }
+
+    public function store(Request $request)
+    {
+        $validated = $request->validate([
+            'name' => ['required', 'string', 'max:255'],
+            'email' => ['required', 'email', 'max:255', 'unique:users,email'],
+            'role' => ['required', Rule::in(['admin', 'receptionist'])],
+            'password' => ['required', 'string', 'min:12', 'confirmed'],
+        ]);
+
+        User::create([
+            'name' => $validated['name'],
+            'email' => $validated['email'],
+            'role' => $validated['role'],
+            'password' => Hash::make($validated['password']),
+        ]);
+
+        return redirect()->route('staff.index')
+            ->with('success', 'Staff account created successfully.');
+    }
+
+    public function updateRole(Request $request, User $user)
+    {
+        if ($user->role === 'super_admin') {
+            return back()->with('error', 'Super Admin accounts cannot be changed here.');
+        }
+
+        $validated = $request->validate([
+            'role' => ['required', Rule::in(['admin', 'receptionist'])],
+        ]);
+
+        $user->update(['role' => $validated['role']]);
+
+        return redirect()->route('staff.index')
+            ->with('success', 'Staff role updated successfully.');
+    }
+
+    public function destroy(Request $request, User $user)
+    {
+        if ($user->role === 'super_admin') {
+            return back()->with('error', 'Super Admin accounts cannot be deleted here.');
+        }
+
+        if ($request->user()->is($user)) {
+            return back()->with('error', 'You cannot delete your own account.');
+        }
+
+        $user->delete();
+
+        return redirect()->route('staff.index')
+            ->with('success', 'Staff account deleted successfully.');
+    }
+
+    public function resetPassword(Request $request, User $user)
+    {
+        if ($user->role === 'super_admin') {
+            return back()->with('error', 'This password cannot be reset through staff management.');
+        }
+
+        $validated = $request->validate([
+            'password' => ['required', 'string', 'min:12', 'confirmed'],
+        ]);
+
+        $user->update([
+            'password' => Hash::make($validated['password']),
+        ]);
+
+        return back()->with('success', 'Password reset successfully.');
+    }
+}
+
+================ .\app\Http\Controllers\ReportController.php ================
+
+<?php
+
+namespace App\Http\Controllers;
+
+use App\Models\Attendance;
+use App\Models\Member;
+use App\Models\Membership;
+use App\Models\Payment;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Response;
+use Illuminate\Validation\ValidationException;
+
+class ReportController extends Controller
+{
+    private function filters(Request $request): array
+    {
+        $validated = $request->validate([
+            'type' => ['nullable', 'in:attendance,memberships,payments'],
+            'from' => ['nullable', 'date'],
+            'to' => ['nullable', 'date', 'after_or_equal:from'],
+        ]);
+
+        return [
+            'type' => $validated['type'] ?? 'attendance',
+            'from' => $validated['from'] ?? now()->startOfMonth()->toDateString(),
+            'to' => $validated['to'] ?? today()->toDateString(),
+        ];
+    }
+
+    public function index(Request $request)
+    {
+        $filters = $this->filters($request);
+        $type = $filters['type'];
+        $from = $filters['from'];
+        $to = $filters['to'];
+
+        $totalMembers = Member::count();
+
+        $activeMemberships = Membership::whereDate('start_date', '<=', today())
+            ->whereDate('end_date', '>=', today())
+            ->count();
+
+        $attendanceCount = Attendance::whereBetween('attendance_date', [$from, $to])
+            ->count();
+
+        $revenue = Payment::where('status', 'paid')
+            ->whereBetween('payment_date', [$from, $to])
+            ->sum('amount');
+
+        if ($type === 'memberships') {
+            $records = Membership::with(['member', 'plan'])
+                ->whereBetween('start_date', [$from, $to])
+                ->orderByDesc('start_date')
+                ->paginate(20)
+                ->withQueryString();
+        } elseif ($type === 'payments') {
+            $records = Payment::with(['membership.member', 'membership.plan'])
+                ->whereBetween('payment_date', [$from, $to])
+                ->orderByDesc('payment_date')
+                ->orderByDesc('id')
+                ->paginate(20)
+                ->withQueryString();
+        } else {
+            $records = Attendance::with('member')
+                ->whereBetween('attendance_date', [$from, $to])
+                ->orderByDesc('attendance_date')
+                ->orderByDesc('check_in_at')
+                ->paginate(20)
+                ->withQueryString();
+        }
+
+        return view('reports.index', compact(
+            'filters',
+            'type',
+            'from',
+            'to',
+            'records',
+            'totalMembers',
+            'activeMemberships',
+            'attendanceCount',
+            'revenue'
+        ));
+    }
+
+    public function export(Request $request)
+    {
+        $filters = $this->filters($request);
+        $type = $filters['type'];
+        $from = $filters['from'];
+        $to = $filters['to'];
+
+        $filename = $type . '-report-' . $from . '-to-' . $to . '.csv';
+
+        return Response::streamDownload(function () use ($type, $from, $to) {
+            $output = fopen('php://output', 'w');
+
+            // Help spreadsheet programs display UTF-8 correctly.
+            fwrite($output, "\xEF\xBB\xBF");
+
+            if ($type === 'memberships') {
+                fputcsv($output, [
+                    'Membership ID', 'Member Number', 'Member Name',
+                    'Plan', 'Start Date', 'End Date', 'Price', 'Status',
+                ]);
+
+                Membership::with(['member', 'plan'])
+                    ->whereBetween('start_date', [$from, $to])
+                    ->orderBy('start_date')
+                    ->chunk(200, function ($rows) use ($output) {
+                        foreach ($rows as $row) {
+                            $status = $row->status === 'cancelled'
+                                ? 'Cancelled'
+                                : ($row->start_date->isFuture()
+                                    ? 'Upcoming'
+                                    : ($row->end_date->lt(today())
+                                        ? 'Expired'
+                                        : 'Active'));
+
+                            fputcsv($output, [
+                                $row->id,
+                                $row->member?->member_number,
+                                $row->member?->full_name,
+                                $row->plan?->name,
+                                $row->start_date?->toDateString(),
+                                $row->end_date?->toDateString(),
+                                $row->price,
+                                $status,
+                            ]);
+                        }
+                    });
+            } elseif ($type === 'payments') {
+                fputcsv($output, [
+                    'Payment ID', 'Payment Date', 'Member',
+                    'Plan', 'Method', 'Reference', 'Amount', 'Status',
+                ]);
+
+                Payment::with(['membership.member', 'membership.plan'])
+                    ->whereBetween('payment_date', [$from, $to])
+                    ->orderBy('payment_date')
+                    ->chunk(200, function ($rows) use ($output) {
+                        foreach ($rows as $row) {
+                            fputcsv($output, [
+                                $row->id,
+                                $row->payment_date?->toDateString(),
+                                $row->membership?->member?->full_name,
+                                $row->membership?->plan?->name,
+                                $row->payment_method,
+                                $row->reference_number,
+                                $row->amount,
+                                $row->status,
+                            ]);
+                        }
+                    });
+            } else {
+                fputcsv($output, [
+                    'Attendance ID', 'Date', 'Member Number',
+                    'Member Name', 'Check In', 'Check Out', 'Method',
+                ]);
+
+                Attendance::with('member')
+                    ->whereBetween('attendance_date', [$from, $to])
+                    ->orderBy('attendance_date')
+                    ->chunk(200, function ($rows) use ($output) {
+                        foreach ($rows as $row) {
+                            fputcsv($output, [
+                                $row->id,
+                                $row->attendance_date?->toDateString(),
+                                $row->member?->member_number,
+                                $row->member?->full_name,
+                                $row->check_in_at?->format('Y-m-d H:i:s'),
+                                $row->check_out_at?->format('Y-m-d H:i:s'),
+                                $row->check_in_method,
+                            ]);
+                        }
+                    });
+            }
+
+            fclose($output);
+        }, $filename, [
+            'Content-Type' => 'text/csv; charset=UTF-8',
+        ]);
+    }
+}
+
+================ .\app\Http\Middleware\EnsureUserHasRole.php ================
+
+<?php
+
+namespace App\Http\Middleware;
+
+use Closure;
+use Illuminate\Http\Request;
+use Symfony\Component\HttpFoundation\Response;
+
+class EnsureUserHasRole
+{
+    public function handle(
+        Request $request,
+        Closure $next,
+        string ...$roles
+    ): Response {
+        $user = $request->user();
+
+        if (!$user) {
+            abort(403, 'You must be signed in.');
+        }
+
+        if (!in_array($user->role, $roles, true)) {
+            abort(403, 'You are not authorized to access this page.');
+        }
+
+        return $next($request);
+    }
+}
